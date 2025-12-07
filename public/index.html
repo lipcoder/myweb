@@ -29,26 +29,36 @@
       color: var(--text-main);
       position: relative;
       overflow-x: hidden;
+      background: radial-gradient(circle at 20% -20%,
+          #1e293b 0,
+          #020617 45%,
+          #000 100%);
     }
 
-    /* 背景：Bing 壁纸 */
-    body::before {
-      content: "";
+    /* 背景：动态土星环使用的全屏 canvas */
+    #saturn-bg {
       position: fixed;
       inset: 0;
-      background: #000 url("https://bing.img.run/1920x1080.php") center center / cover no-repeat fixed;
       z-index: -2;
+      width: 100vw;
+      height: 100vh;
+      display: block;
     }
 
-    body::after {
-      content: "";
+    /* 轻微叠加一层渐变和高光，方便内容可读 */
+    .bg-overlay {
       position: fixed;
       inset: 0;
-      background: linear-gradient(to bottom,
-          rgba(15, 23, 42, 0.7),
-          rgba(15, 23, 42, 0.35),
-          rgba(15, 23, 42, 0.85));
       z-index: -1;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at center,
+          rgba(15, 23, 42, 0.0) 0,
+          rgba(15, 23, 42, 0.75) 62%,
+          rgba(15, 23, 42, 0.98) 100%),
+        radial-gradient(circle at -10% -10%,
+          rgba(56, 189, 248, 0.2),
+          transparent 65%);
     }
 
     .page {
@@ -228,7 +238,6 @@
       background: linear-gradient(135deg, #38bdf8, #0ea5e9);
       border-color: rgba(56, 189, 248, 0.95);
       color: #020617;
-      /* 深色文字，避免黑底黑字 */
       font-weight: 600;
       box-shadow: 0 16px 40px rgba(56, 189, 248, 0.6);
     }
@@ -236,7 +245,6 @@
     .btn-primary:hover {
       filter: brightness(1.05);
       color: #020617;
-      /* hover 时保持文字可见 */
     }
 
     footer {
@@ -516,6 +524,10 @@
 </head>
 
 <body>
+  <!-- 动态土星环背景 -->
+  <canvas id="saturn-bg"></canvas>
+  <div class="bg-overlay"></div>
+
   <div class="page">
     <header>
       <div class="brand">
@@ -550,7 +562,7 @@
 
     <footer>
       © <span id="year"></span> <a href="https://github.com/lipcoder" target="_blank" rel="noopener">lipcoder</a> ·
-      Powered by nginx &amp; Bing Wallpaper
+      Powered by Go &amp; nginx
     </footer>
   </div>
 
@@ -607,6 +619,8 @@
     </div>
   </div>
 
+  <!-- 先挂背景 JS，再挂你原来的 main.js -->
+  <script src="saturn-bg.js"></script>
   <script src="main.js"></script>
 </body>
 
