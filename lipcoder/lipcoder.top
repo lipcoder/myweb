@@ -3,7 +3,7 @@ server {
     listen 80;
     server_name lipcoder.top www.lipcoder.top;
 
-    # 微信验证文件（精确匹配这个路径）举例
+    # 微信验证文件举例
     location = /26cfbf9d4f5e9fd20536d1.txt {
         default_type text/plain;
         return 200 "1a3eb0d44b80351919fa5a03774b8a5b1";
