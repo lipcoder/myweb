@@ -1,9 +1,7 @@
 // saturn-bg.js
 (function () {
   const canvas = document.getElementById("saturn-bg");
-  if (!canvas || !canvas.getContext) {
-    return;
-  }
+  if (!canvas || !canvas.getContext) return;
 
   const ctx = canvas.getContext("2d");
 
@@ -13,47 +11,48 @@
   let centerY = 0;
   let ringRadius = 0;
 
-  const STAR_COUNT = 240;
-  const RING_LAYERS = 2;
-  const RING_PARTICLES_PER_LAYER = 200;
+  let isSmallScreen = false;
+  let particlesPerLayer = 0;
 
-  let stars = [];
+  const RING_LAYERS = 2;
+  const BASE_PARTICLES_PER_LAYER = 240;
+
   let ringParticles = [];
   let lastTime = 0;
 
   function resize() {
-    width = canvas.width = window.innerWidth;
-    height = canvas.height = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
 
-    // 环仍然偏下面一点
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    const aspect = height / Math.max(width, 1);
+    isSmallScreen = width < 700 || aspect > 1.3;
+
+    // canvas 实际像素乘以 dpr，再把坐标系设回 CSS 像素
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
     centerX = width / 2;
     centerY = height * 0.58;
-    ringRadius = Math.min(width, height) * 0.33;
+    ringRadius = Math.min(width, height) * (isSmallScreen ? 0.36 : 0.33);
 
-    initStars();
+    // 小屏稍微少一点点，防止太密集
+    particlesPerLayer = isSmallScreen
+      ? Math.round(BASE_PARTICLES_PER_LAYER * 0.85)
+      : BASE_PARTICLES_PER_LAYER;
+
     initRings();
-  }
-
-  function initStars() {
-    stars = [];
-    for (let i = 0; i < STAR_COUNT; i++) {
-      const x = Math.random() * width;
-      const y = Math.random() * height;
-      const baseAlpha = 0.05 + Math.random() * 0.18;
-      const phase = Math.random() * Math.PI * 2;
-      const speed = 0.0004 + Math.random() * 0.0008;
-      const size = 0.4 + Math.random() * 1.1;
-
-      stars.push({ x, y, baseAlpha, phase, speed, size });
-    }
   }
 
   function initRings() {
     ringParticles = [];
 
     for (let layer = 0; layer < RING_LAYERS; layer++) {
-      const base = ringRadius * (0.9 + layer * 0.18);
-      for (let i = 0; i < RING_PARTICLES_PER_LAYER; i++) {
+      const base = ringRadius * (0.9 + layer * 0.16);
+
+      for (let i = 0; i < particlesPerLayer; i++) {
         const angle = Math.random() * Math.PI * 2;
         const radiusJitter = (Math.random() - 0.5) * base * 0.16;
         const radius = base + radiusJitter;
@@ -76,7 +75,6 @@
   function update(dt) {
     const delta = dt || 16;
 
-    // 环粒子旋转
     for (let i = 0; i < ringParticles.length; i++) {
       const p = ringParticles[i];
       p.angle += p.speed * delta;
@@ -85,26 +83,10 @@
     }
   }
 
-  // —— 背景：纯黑 —— 
   function drawBackground() {
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, width, height);
-  }
-
-  function drawStars() {
-    for (let i = 0; i < stars.length; i++) {
-      const s = stars[i];
-      const alpha = s.baseAlpha + 0.3 * Math.sin(s.phase);
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.fillStyle =
-        "rgba(148, 163, 184," + alpha.toFixed(3) + ")";
-      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
   }
 
   function drawRingParticle(p) {
@@ -112,13 +94,17 @@
     const y = centerY + Math.sin(p.angle) * p.radius * 0.34;
 
     const depthFactor = 1 - p.depth; // 越靠前越亮
-    const baseSize = p.layer === 0 ? 1.1 : 0.9;
-    const size = baseSize + depthFactor * 1.4;
-    const alpha = 0.25 + depthFactor * 0.65;
+    const baseSize = p.layer === 0 ? 1.0 : 0.85;
+
+    // 小屏：粒子更小一点，整体更“细颗粒”
+    const sizeScale = isSmallScreen ? 0.7 : 1.0;
+
+    const size = (baseSize + depthFactor * 0.9) * sizeScale;
+    const alpha = 0.45 + depthFactor * 0.4;
 
     const tint =
       p.layer === 0
-        ? { r: 125, g: 211, b: 252 } // 内圈偏亮偏蓝
+        ? { r: 125, g: 211, b: 252 } // 内圈偏蓝
         : { r: 148, g: 163, b: 184 }; // 外圈偏灰
 
     ctx.save();
@@ -133,9 +119,8 @@
       "," +
       alpha.toFixed(3) +
       ")";
-    ctx.shadowColor =
-      "rgba(56, 189, 248," + (alpha * 0.7).toFixed(3) + ")";
-    ctx.shadowBlur = 5 * depthFactor;
+
+    // 不再使用任何阴影 / blur，纯色小圆点
     ctx.arc(x, y, size, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
@@ -145,22 +130,17 @@
     // 背面半圈
     for (let i = 0; i < ringParticles.length; i++) {
       const p = ringParticles[i];
-      if (Math.sin(p.angle) < 0) {
-        drawRingParticle(p);
-      }
+      if (Math.sin(p.angle) < 0) drawRingParticle(p);
     }
     // 正面半圈
     for (let i = 0; i < ringParticles.length; i++) {
       const p = ringParticles[i];
-      if (Math.sin(p.angle) >= 0) {
-        drawRingParticle(p);
-      }
+      if (Math.sin(p.angle) >= 0) drawRingParticle(p);
     }
   }
 
   function render() {
     drawBackground();
-    drawStars();
     drawRings();
   }
 
