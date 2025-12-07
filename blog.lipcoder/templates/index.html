@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>我的博客</title>
+  </head>
+  <body>
+    <h1>我的博客</h1>
+    <hr />
+
+    {{ if .Posts }}
+    <ul>
+      {{ range .Posts }}
+      <li>
+        <a href="/post/{{ .Slug }}">{{ .Title }}</a>
+        ({{ .Date.Format "2006-01-02" }})<br />
+        <small>{{ .Summary }}</small>
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <p>还没有文章，请在 <code>markdowns</code> 目录放一些 .md 文件。</p>
+    {{ end }}
+  </body>
+</html>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ .Post.Title }}</title>
+    <style>
+      pre {
+        white-space: pre-wrap;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <a href="/">返回首页</a>
+    <h1>{{ .Post.Title }}</h1>
+    <p><small>{{ .Post.Date.Format "2006-01-02 15:04" }}</small></p>
+    <hr />
+
+    <pre>{{ .Post.Raw }}</pre>
+  </body>
+</html>
