@@ -1,0 +1,37 @@
+# 主站：Go 程序（5000）
+server {
+    listen 80;
+    server_name lipcoder.top www.lipcoder.top;
+
+    # 微信验证文件（精确匹配这个路径）举例
+    location = /26cfbf9d4f5e9fd20536d1.txt {
+        default_type text/plain;
+        return 200 "1a3eb0d44b80351919fa5a03774b8a5b1";
+    }
+    
+    # 所有请求都交给 Go
+    location / {
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+}
+
+# 博客：监听 10925 的服务
+server {
+    listen 80;
+    server_name blog.lipcoder.top;   
+    location / {
+        proxy_pass         http://127.0.0.1:5001;
+        proxy_http_version 1.1;
+
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+}
