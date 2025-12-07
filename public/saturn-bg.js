@@ -11,7 +11,6 @@
   let centerX = 0;
   let centerY = 0;
   let ringRadius = 0;
-  let planetRadius = 0;
 
   const PARTICLE_COUNT = 260;
   let particles = [];
@@ -26,7 +25,6 @@
 
     const base = Math.min(width, height);
     ringRadius = base * 0.32;
-    planetRadius = base * 0.10;
 
     initParticles();
   }
@@ -40,7 +38,7 @@
       const depth = Math.random(); // 0 前景，1 背景
       const speed =
         (0.00014 + Math.random() * 0.00018) *
-        (depth < 0.5 ? 1.25 : 0.9); // 近处稍微快一点
+        (depth < 0.5 ? 1.25 : 0.9); // 近处稍快一点
 
       particles.push({
         angle,
@@ -60,30 +58,6 @@
         p.angle -= Math.PI * 2;
       }
     }
-  }
-
-  function drawPlanet() {
-    ctx.save();
-    const g = ctx.createRadialGradient(
-      centerX - planetRadius * 0.4,
-      centerY - planetRadius * 0.5,
-      planetRadius * 0.3,
-      centerX + planetRadius * 0.4,
-      centerY + planetRadius * 0.8,
-      planetRadius * 1.7
-    );
-    g.addColorStop(0, "#38bdf8");
-    g.addColorStop(0.4, "#0ea5e9");
-    g.addColorStop(0.75, "#1f2937");
-    g.addColorStop(1, "#020617");
-
-    ctx.fillStyle = g;
-    ctx.shadowColor = "rgba(56, 189, 248, 0.45)";
-    ctx.shadowBlur = planetRadius * 0.8;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, planetRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
   }
 
   function drawParticle(p) {
@@ -107,7 +81,7 @@
   function render() {
     ctx.clearRect(0, 0, width, height);
 
-    // 背景轻微渐变（canvas 内部，再叠加 CSS 的底色）
+    // 背景渐变
     const bg = ctx.createRadialGradient(
       centerX,
       centerY,
@@ -116,24 +90,19 @@
       centerY,
       Math.max(width, height) * 0.9
     );
-    bg.addColorStop(0, "rgba(15,23,42,0.95)");
+    bg.addColorStop(0, "rgba(15,23,42,0.9)");
     bg.addColorStop(1, "rgba(2,6,23,1)");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
-    // 先画远端半圈的粒子（在行星后面）
+    // 粒子环（分前后层，只是为了层次感，视觉上还是一个环）
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
-      // sin < 0 的部分在上方，当作“远侧”
       if (Math.sin(p.angle) < 0) {
         drawParticle(p);
       }
     }
 
-    // 中间的行星
-    drawPlanet();
-
-    // 再画近端半圈（在行星前面）
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
       if (Math.sin(p.angle) >= 0) {
