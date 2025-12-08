@@ -42,7 +42,9 @@
 
         <!-- 评论区域 -->
         <section class="mt-8">
-          <div class="border-t border-neutral-200 pt-4 mb-3 flex items-baseline justify-between">
+          <div
+            class="border-t border-neutral-200 pt-4 mb-3 flex items-baseline justify-between"
+          >
             <h2 class="text-base font-semibold">评论</h2>
             <span class="text-xs text-slate-500">
               共 {{ len .Comments }} 条
@@ -102,9 +104,82 @@
           </div>
           {{ end }}
 
+          <!-- 评论输入区：放在最上面 + 右侧集成昵称和按钮 -->
+          <form
+            method="post"
+            action="/post/{{ .Post.Slug }}/comment"
+            class="mb-6"
+          >
+            <div class="flex items-start space-x-3">
+              <!-- 左侧头像 -->
+              {{ if .CurrentUser }}
+              <div
+                class="w-9 h-9 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center"
+              >
+                <img
+                  src="{{ .CurrentUser.AvatarURL }}"
+                  alt="avatar"
+                  class="w-full h-full object-cover"
+                />
+              </div>
+              {{ else }}
+              <div
+                class="w-9 h-9 rounded-full bg-slate-300 flex items-center justify-center text-xs text-slate-700"
+              >
+                游客
+              </div>
+              {{ end }}
+
+              <!-- 右侧输入区域：左大右小 -->
+              <div class="flex-1">
+                <div class="flex flex-col sm:flex-row gap-3">
+                  <!-- 左侧大输入框 -->
+                  <div class="flex-1">
+                    <div
+                      class="rounded-lg bg-[#252525] bg-opacity-5 border border-neutral-300 px-3 py-2"
+                    >
+                      <textarea
+                        name="content"
+                        rows="3"
+                        placeholder="发布你的评论"
+                        class="w-full bg-transparent text-sm text-slate-900 outline-none resize-none"
+                      ></textarea>
+                    </div>
+                  </div>
+
+                  <!-- 右侧昵称 + 按钮 -->
+                  <div
+                    class="w-full sm:w-40 flex flex-col justify-between space-y-2 text-xs text-slate-600"
+                  >
+                    {{ if not .CurrentUser }}
+                    <input
+                      type="text"
+                      name="author"
+                      placeholder="昵称"
+                      class="rounded-md border border-neutral-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                    {{ end }}
+                    <button
+                      type="submit"
+                      class="rounded-full bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 active:bg-amber-800 self-end"
+                    >
+                      评论
+                    </button>
+                  </div>
+                </div>
+
+                {{ if .Error }}
+                <p class="mt-1 text-[11px] text-red-600">
+                  {{ .Error }}
+                </p>
+                {{ end }}
+              </div>
+            </div>
+          </form>
+
           <!-- 已有评论列表 -->
           {{ if .Comments }}
-          <ul class="space-y-3 mb-6">
+          <ul class="space-y-3">
             {{ range .Comments }}
             <li class="border-b border-neutral-200 pb-2">
               <div class="flex items-start space-x-2">
@@ -143,81 +218,10 @@
             {{ end }}
           </ul>
           {{ else }}
-          <p class="mb-6 text-xs text-slate-500">
+          <p class="text-xs text-slate-500">
             还没有评论，来当第一个吧。
           </p>
           {{ end }}
-
-          <!-- 评论输入区：微博风 -->
-          <form
-            method="post"
-            action="/post/{{ .Post.Slug }}/comment"
-            class="space-y-3"
-          >
-            <div class="flex items-start space-x-3">
-              <!-- 左侧头像 -->
-              {{ if .CurrentUser }}
-              <div
-                class="w-9 h-9 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center"
-              >
-                <img
-                  src="{{ .CurrentUser.AvatarURL }}"
-                  alt="avatar"
-                  class="w-full h-full object-cover"
-                />
-              </div>
-              {{ else }}
-              <div
-                class="w-9 h-9 rounded-full bg-slate-300 flex items-center justify-center text-xs text-slate-700"
-              >
-                游客
-              </div>
-              {{ end }}
-
-              <!-- 右侧输入区域 -->
-              <div class="flex-1">
-                <div
-                  class="rounded-lg bg-[#252525] bg-opacity-5 border border-neutral-300 px-3 py-2"
-                >
-                  <textarea
-                    name="content"
-                    rows="3"
-                    placeholder="发布你的评论"
-                    class="w-full bg-transparent text-sm text-slate-900 outline-none resize-none"
-                  ></textarea>
-                </div>
-
-                {{ if .Error }}
-                <p class="mt-1 text-[11px] text-red-600">
-                  {{ .Error }}
-                </p>
-                {{ end }}
-
-                <div
-                  class="mt-2 flex items-center justify-between text-xs text-slate-500"
-                >
-                  
-
-                  <div class="flex items-center space-x-2">
-                    {{ if not .CurrentUser }}
-                    <input
-                      type="text"
-                      name="author"
-                      placeholder="昵称"
-                      class="hidden sm:inline-block w-28 rounded-md border border-neutral-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                    {{ end }}
-                    <button
-                      type="submit"
-                      class="rounded-full bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 active:bg-amber-800"
-                    >
-                      评论
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </form>
         </section>
       </article>
     </div>
