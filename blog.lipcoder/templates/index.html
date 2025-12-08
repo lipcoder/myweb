@@ -3,72 +3,73 @@
   <head>
     <meta charset="utf-8" />
     <title>我的博客</title>
-    <style>
-      body {
-        max-width: 720px;
-        margin: 0 auto;
-        padding: 2rem 1rem;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.6;
-        background: #f7f7f7;
-      }
-      a {
-        color: #0070f3;
-        text-decoration: none;
-      }
-      a:hover {
-        text-decoration: underline;
-      }
-      h1 {
-        margin-bottom: 0.5rem;
-      }
-      .post-list {
-        list-style: none;
-        padding: 0;
-      }
-      .post-item {
-        background: #fff;
-        border-radius: 8px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-      }
-      .post-item-title {
-        font-size: 1.1rem;
-        margin: 0 0 0.25rem 0;
-      }
-      .meta {
-        font-size: 0.85rem;
-        color: #666;
-        margin-bottom: 0.5rem;
-      }
-      .summary {
-        font-size: 0.95rem;
-        color: #333;
-      }
-    </style>
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body>
-    <h1>我的博客</h1>
-    <p class="meta">共 {{ len .Posts }} 篇文章</p>
-    <hr />
+  <!-- 米白色背景：稍微偏暖一点 -->
+  <body class="min-h-screen bg-[#f7f3ea] text-slate-900">
+    <div class="max-w-3xl mx-auto px-4 py-10">
+      <!-- 顶部标题区 -->
+      <header class="mb-6">
+        <h1 class="text-3xl font-semibold tracking-tight">
+          我的博客
+        </h1>
+        <p class="mt-1 text-sm text-slate-500">
+          共 {{ len .Posts }} 篇文章
+        </p>
 
-    {{ if .Posts }}
-    <ul class="post-list">
-      {{ range .Posts }}
-      <li class="post-item">
-        <h2 class="post-item-title">
-          <a href="/post/{{ .Slug }}">{{ .Title }}</a>
-        </h2>
-        <div class="meta">
-          {{ .Date.Format "2006-01-02" }} · 预计阅读 {{ .ReadingTime }} 分钟
-        </div>
-        <p class="summary">{{ .Summary }}</p>
-      </li>
+        <!-- 顶部细线 -->
+        <div class="mt-4 border-t border-neutral-300"></div>
+      </header>
+
+      <!-- 文章列表 -->
+      {{ if .Posts }}
+      <section class="space-y-4">
+        {{ range .Posts }}
+        <!-- 单个文章卡片 -->
+        <article
+          class="group rounded-2xl bg-white border border-neutral-200 px-5 py-4 shadow-sm
+                 hover:-translate-y-0.5 hover:shadow-lg hover:border-neutral-300
+                 transition duration-200 ease-out"
+        >
+          <a href="/post/{{ .Slug }}" class="block">
+            <h2
+              class="text-lg font-semibold text-slate-900 group-hover:text-blue-700
+                     transition-colors"
+            >
+              {{ .Title }}
+            </h2>
+
+            <p class="mt-1 text-xs text-slate-500">
+              {{ .Date.Format "2006-01-02" }} · 预计阅读 1 分钟
+            </p>
+
+            <p class="mt-2 text-sm leading-relaxed text-slate-800">
+              {{ .Summary }}
+            </p>
+
+            <!-- 底部“底框”区域：用一条淡线和小字 -->
+            <div class="mt-3 pt-2 border-t border-neutral-200 flex items-center justify-between">
+              <span class="text-xs text-neutral-500">
+                点击阅读全文
+              </span>
+              <span class="text-xs text-blue-700 group-hover:underline">
+                Read more →
+              </span>
+            </div>
+          </a>
+        </article>
+        {{ end }}
+      </section>
+      {{ else }}
+      <p class="text-slate-500 text-sm">
+        还没有文章，请在
+        <code class="font-mono">markdowns/</code>
+        目录放一些
+        <code class="font-mono">.md</code>
+        文件。
+      </p>
       {{ end }}
-    </ul>
-    {{ else }}
-    <p>还没有文章，请在 <code>markdowns</code> 目录放一些 .md 文件。</p>
-    {{ end }}
+    </div>
   </body>
 </html>

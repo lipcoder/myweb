@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"bytes"
 	"html/template"
 	"log"
 	"net/http"
@@ -11,33 +11,50 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	gparser "github.com/yuin/goldmark/parser"
+	ghtml "github.com/yuin/goldmark/renderer/html"
 )
 
 const (
-	// 文章目录，可以改成环境变量 BLOG_MARKDOWN_DIR 覆盖
 	envMarkdownDir     = "BLOG_MARKDOWN_DIR"
 	defaultMarkdownDir = "./markdowns"
 )
 
 // Post 表示一篇文章
 type Post struct {
-	Slug        string
-	Title       string
-	Date        time.Time
-	Summary     string
-	Raw         string          // 原始 markdown 文本
-	HTML        template.HTML   // 渲染后的 HTML
-	ReadingTime int             // 估算阅读时长（分钟）
+	Slug    string
+	Title   string
+	Date    time.Time
+	Summary string
+	Raw     string
+	HTML    template.HTML
 }
 
 var (
 	tpl         *template.Template
 	postsBySlug map[string]*Post
 	allPosts    []*Post
+
+	md = goldmark.New(
+		goldmark.WithExtensions(
+			extension.GFM,
+		),
+		goldmark.WithParserOptions(
+			gparser.WithAutoHeadingID(),
+		),
+		goldmark.WithRendererOptions(
+			ghtml.WithHardWraps(),
+			ghtml.WithXHTML(),
+			ghtml.WithUnsafe(), // markdown 里的原始 HTML 也输出
+		),
+	)
 )
 
 func main() {
-	// 1. 加载文章
+	// 1. 加载 markdown
 	markdownDir := os.Getenv(envMarkdownDir)
 	if markdownDir == "" {
 		markdownDir = defaultMarkdownDir
@@ -49,12 +66,21 @@ func main() {
 		log.Fatalf("加载 markdown 失败: %v", err)
 	}
 
-	// 2. 解析 templates 目录下所有 html
+	// 2. 模板
 	tpl = template.Must(template.ParseGlob("templates/*.html"))
 
 	// 3. 路由
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/post/", handlePost)
+
+	// 4. 静态图片路由：/images/... -> ./markdowns/images/...
+	http.Handle(
+		"/images/",
+		http.StripPrefix(
+			"/images/",
+			http.FileServer(http.Dir("markdowns/images")),
+		),
+	)
 
 	addr := ":8080"
 	log.Printf("博客已启动，访问 http://localhost%s\n", addr)
@@ -129,23 +155,24 @@ func loadPosts(root string) ([]*Post, map[string]*Post, error) {
 		slug := makeSlug(path, root)
 		summary := makeSummary(raw)
 
-		info, _ := d.Info()
+		info, err := d.Info()
 		modTime := time.Now()
-		if info != nil {
+		if err == nil && info != nil {
 			modTime = info.ModTime()
 		}
 
-		html := markdownToHTML(raw)
-		readingTime := calcReadingTime(raw)
+		htmlContent, err := renderMarkdown(raw)
+		if err != nil {
+			return err
+		}
 
 		post := &Post{
-			Slug:        slug,
-			Title:       title,
-			Date:        modTime,
-			Summary:     summary,
-			Raw:         raw,
-			HTML:        html,
-			ReadingTime: readingTime,
+			Slug:    slug,
+			Title:   title,
+			Date:    modTime,
+			Summary: summary,
+			Raw:     raw,
+			HTML:    htmlContent,
 		}
 
 		posts = append(posts, post)
@@ -157,7 +184,7 @@ func loadPosts(root string) ([]*Post, map[string]*Post, error) {
 		return nil, nil, err
 	}
 
-	// 按时间倒序
+	// 时间倒序
 	sort.Slice(posts, func(i, j int) bool {
 		return posts[i].Date.After(posts[j].Date)
 	})
@@ -190,7 +217,7 @@ func makeSlug(path, root string) string {
 	return slug
 }
 
-// 摘要：取前几行正文拼起来
+// 摘要：取前几行正文
 func makeSummary(content string) string {
 	lines := strings.Split(content, "\n")
 	var b strings.Builder
@@ -199,12 +226,12 @@ func makeSummary(content string) string {
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "#") { // 跳过标题
+		if strings.HasPrefix(line, "#") {
 			continue
 		}
 		b.WriteString(line)
 		b.WriteRune(' ')
-		if b.Len() > 80 {
+		if b.Len() > 120 {
 			break
 		}
 	}
@@ -213,80 +240,24 @@ func makeSummary(content string) string {
 		return "暂无摘要。"
 	}
 	runes := []rune(s)
-	if len(runes) > 80 {
-		s = string(runes[:80]) + "..."
+	if len(runes) > 120 {
+		s = string(runes[:120]) + "..."
 	}
 	return s
 }
 
-// 简易 markdown -> HTML（支持标题、段落、代码块）
-func markdownToHTML(md string) template.HTML {
-	lines := strings.Split(md, "\n")
-	var b strings.Builder
-	inCode := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// 代码块 ``` 包裹
-		if strings.HasPrefix(trimmed, "```") {
-			if !inCode {
-				b.WriteString("<pre><code>")
-				inCode = true
-			} else {
-				b.WriteString("</code></pre>\n")
-				inCode = false
-			}
-			continue
-		}
-
-		if inCode {
-			// 代码内容需要转义
-			template.HTMLEscape(&b, []byte(line+"\n"))
-			continue
-		}
-
-		if trimmed == "" {
-			continue
-		}
-
-		// 标题 # / ## / ... / ######
-		if strings.HasPrefix(trimmed, "#") {
-			level := 0
-			for level < len(trimmed) && trimmed[level] == '#' {
-				level++
-			}
-			if level > 6 {
-				level = 6
-			}
-			text := strings.TrimSpace(trimmed[level:])
-			if text == "" {
-				continue
-			}
-			tag := fmt.Sprintf("h%d", level)
-			b.WriteString("<" + tag + ">")
-			template.HTMLEscape(&b, []byte(text))
-			b.WriteString("</" + tag + ">\n")
-			continue
-		}
-
-		// 普通段落
-		b.WriteString("<p>")
-		template.HTMLEscape(&b, []byte(trimmed))
-		b.WriteString("</p>\n")
+// markdown 渲染成 HTML，并修正图片路径
+func renderMarkdown(content string) (template.HTML, error) {
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(content), &buf); err != nil {
+		return "", err
 	}
+	htmlStr := buf.String()
 
-	return template.HTML(b.String())
-}
+	// 把 markdown 里类似 src="images/xxx.png" / "./images/xxx.png"
+	// 统一改成 HTTP 路径 /images/xxx.png
+	htmlStr = strings.ReplaceAll(htmlStr, `src="images/`, `src="/images/`)
+	htmlStr = strings.ReplaceAll(htmlStr, `src="./images/`, `src="/images/`)
 
-// 根据字数估算阅读时长（分钟）
-func calcReadingTime(content string) int {
-	// 简单按空白分词
-	words := strings.Fields(content)
-	const wpm = 200 // words per minute
-	minutes := (len(words) + wpm - 1) / wpm
-	if minutes <= 0 {
-		minutes = 1
-	}
-	return minutes
+	return template.HTML(htmlStr), nil
 }

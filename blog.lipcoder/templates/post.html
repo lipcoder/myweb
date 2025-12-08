@@ -3,79 +3,42 @@
   <head>
     <meta charset="utf-8" />
     <title>{{ .Post.Title }}</title>
-    <style>
-      body {
-        max-width: 720px;
-        margin: 0 auto;
-        padding: 2rem 1rem;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.7;
-        background: #f7f7f7;
-      }
-      a {
-        color: #0070f3;
-        text-decoration: none;
-      }
-      a:hover {
-        text-decoration: underline;
-      }
-      .back {
-        font-size: 0.9rem;
-        margin-bottom: 1rem;
-        display: inline-block;
-      }
-      article {
-        background: #fff;
-        border-radius: 8px;
-        padding: 1.5rem 1.75rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-      }
-      h1 {
-        margin-top: 0;
-      }
-      .meta {
-        font-size: 0.85rem;
-        color: #666;
-        margin-bottom: 1.25rem;
-      }
-      article h1,
-      article h2,
-      article h3,
-      article h4,
-      article h5,
-      article h6 {
-        margin-top: 1.4rem;
-        margin-bottom: 0.6rem;
-      }
-      article p {
-        margin: 0.6rem 0;
-      }
-      pre {
-        background: #111;
-        color: #eee;
-        padding: 0.75rem 1rem;
-        border-radius: 6px;
-        overflow-x: auto;
-        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
-        font-size: 0.9rem;
-      }
-      code {
-        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
-      }
-    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body>
-    <a href="/" class="back">← 返回首页</a>
+  <body class="min-h-screen bg-[#f7f3ea] text-slate-900">
+    <div class="max-w-3xl mx-auto px-4 py-10">
+      <!-- 返回链接 -->
+      <a
+        href="/"
+        class="text-sm text-slate-500 hover:text-blue-700 hover:underline inline-flex items-center mb-4"
+      >
+        <span class="mr-1">&larr;</span> 返回首页
+      </a>
 
-    <article>
-      <h1>{{ .Post.Title }}</h1>
-      <p class="meta">
-        {{ .Post.Date.Format "2006-01-02 15:04" }} · 预计阅读 {{ .Post.ReadingTime }} 分钟
-      </p>
-      <hr />
+      <!-- 文章卡片 -->
+      <article
+        class="rounded-2xl bg-white border border-neutral-200 px-6 py-6 shadow-sm"
+      >
+        <header class="mb-4">
+          <h1 class="text-3xl font-semibold tracking-tight">
+            {{ .Post.Title }}
+          </h1>
+          <p class="mt-2 text-xs text-slate-500">
+            {{ .Post.Date.Format "2006-01-02 15:04" }}
+          </p>
+          <div class="mt-4 border-t border-neutral-200"></div>
+        </header>
 
-      <!-- 渲染后的 HTML 内容 -->
-      {{ .Post.HTML }}
-    </article>
+        <!-- 正文内容（goldmark 渲染好的 HTML） -->
+        <div class="prose prose-sm max-w-none">
+          {{ .Post.HTML }}
+        </div>
+
+        <!-- 底部“底框” -->
+        <footer class="mt-6 pt-3 border-t border-neutral-200 text-xs text-neutral-500">
+          <p>感谢阅读。</p>
+        </footer>
+      </article>
+    </div>
   </body>
 </html>
