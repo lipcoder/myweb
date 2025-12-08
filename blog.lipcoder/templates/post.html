@@ -42,12 +42,59 @@
 
         <!-- 评论区域 -->
         <section class="mt-8">
-          <div class="border-t border-neutral-200 pt-4 mb-4 flex items-baseline justify-between">
+          <div class="border-t border-neutral-200 pt-4 mb-3 flex items-baseline justify-between">
             <h2 class="text-base font-semibold">评论</h2>
             <span class="text-xs text-slate-500">
               共 {{ len .Comments }} 条
             </span>
           </div>
+
+          <!-- 登录状态 / GitHub 登录入口 -->
+          {{ if .CurrentUser }}
+          <div
+            class="mb-4 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600"
+          >
+            <div class="flex items-center space-x-2">
+              <img
+                src="{{ .CurrentUser.AvatarURL }}"
+                alt="avatar"
+                class="w-6 h-6 rounded-full"
+              />
+              <span>已使用 GitHub 登录：{{ .CurrentUser.GitHubUser }}</span>
+            </div>
+            <a
+              href="/logout?next=/post/{{ .Post.Slug }}"
+              class="text-xs text-red-500 hover:underline"
+            >
+              退出登录
+            </a>
+          </div>
+          {{ else }}
+          <div
+            class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600 space-y-2 sm:space-y-0"
+          >
+            <span>你尚未登录，可以使用 GitHub 用户名登录，也可以直接匿名评论。</span>
+            <form
+              method="post"
+              action="/login"
+              class="flex items-center space-x-2"
+            >
+              <input type="hidden" name="next" value="/post/{{ .Post.Slug }}" />
+              <input
+                type="text"
+                name="github_name"
+                placeholder="GitHub 用户名"
+                class="w-32 rounded-md border border-neutral-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <button
+                type="submit"
+                class="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-medium text-white hover:bg-slate-900"
+              >
+                GitHub 登录
+              </button>
+            </form>
+          </div>
+          {{ end }}
 
           {{ if .Error }}
           <div class="mb-3 text-xs text-red-600">
@@ -60,13 +107,38 @@
           <ul class="space-y-3 mb-6">
             {{ range .Comments }}
             <li class="border-b border-neutral-200 pb-2">
-              <div class="text-xs text-slate-500 flex justify-between">
-                <span>{{ .Author }}</span>
-                <span>{{ .CreatedAt.Format "2006-01-02 15:04" }}</span>
+              <div class="flex items-start space-x-2">
+                <!-- 左侧头像：GitHub 用户用头像，否则用占位符 -->
+                {{ if .GitHubUser }}
+                <img
+                  src="https://avatars.githubusercontent.com/{{ .GitHubUser }}"
+                  alt="avatar"
+                  class="w-7 h-7 rounded-full"
+                />
+                {{ else }}
+                <div
+                  class="w-7 h-7 rounded-full bg-slate-300 text-[10px] flex items-center justify-center text-slate-700"
+                >
+                  匿
+                </div>
+                {{ end }}
+
+                <div class="flex-1">
+                  <div class="text-xs text-slate-500 flex justify-between">
+                    <span>
+                      {{ if .GitHubUser }}
+                        {{ .GitHubUser }}
+                      {{ else }}
+                        {{ .Author }}
+                      {{ end }}
+                    </span>
+                    <span>{{ .CreatedAt.Format "2006-01-02 15:04" }}</span>
+                  </div>
+                  <p class="mt-1 text-sm text-slate-800 whitespace-pre-wrap">
+                    {{ .Content }}
+                  </p>
+                </div>
               </div>
-              <p class="mt-1 text-sm text-slate-800 whitespace-pre-wrap">
-                {{ .Content }}
-              </p>
             </li>
             {{ end }}
           </ul>
@@ -76,19 +148,31 @@
           </p>
           {{ end }}
 
-          <!-- 评论输入区：参考微博的布局 -->
+          <!-- 评论输入区：微博风 -->
           <form
             method="post"
             action="/post/{{ .Post.Slug }}/comment"
             class="space-y-3"
           >
             <div class="flex items-start space-x-3">
-              <!-- 左侧头像占位 -->
+              <!-- 左侧头像 -->
+              {{ if .CurrentUser }}
+              <div
+                class="w-9 h-9 rounded-full overflow-hidden bg-slate-200 flex items-center justify-center"
+              >
+                <img
+                  src="{{ .CurrentUser.AvatarURL }}"
+                  alt="avatar"
+                  class="w-full h-full object-cover"
+                />
+              </div>
+              {{ else }}
               <div
                 class="w-9 h-9 rounded-full bg-slate-300 flex items-center justify-center text-xs text-slate-700"
               >
-                我
+                游客
               </div>
+              {{ end }}
 
               <!-- 右侧输入区域 -->
               <div class="flex-1">
@@ -103,7 +187,6 @@
                   ></textarea>
                 </div>
 
-                <!-- 错误提示（如果有的话再显示一次） -->
                 {{ if .Error }}
                 <p class="mt-1 text-[11px] text-red-600">
                   {{ .Error }}
@@ -116,12 +199,14 @@
                   
 
                   <div class="flex items-center space-x-2">
+                    {{ if not .CurrentUser }}
                     <input
                       type="text"
                       name="author"
                       placeholder="昵称"
                       class="hidden sm:inline-block w-28 rounded-md border border-neutral-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
+                    {{ end }}
                     <button
                       type="submit"
                       class="rounded-full bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 active:bg-amber-800"

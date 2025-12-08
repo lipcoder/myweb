@@ -38,10 +38,18 @@ type Post struct {
 
 // Comment 表示一条评论
 type Comment struct {
-	Author    string    `json:"author"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
+	Author     string    `json:"author"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"created_at"`
+	GitHubUser string    `json:"github_user,omitempty"` // 绑定的 GitHub 用户名（可空）
 }
+
+// 当前登录用户（只在内存里用）
+type CurrentUser struct {
+	GitHubUser string
+	AvatarURL  string
+}
+
 
 var (
 	tpl         *template.Template
@@ -83,6 +91,9 @@ func main() {
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/post/", handlePost)
 	http.HandleFunc("/about", handleAbout)
+	http.HandleFunc("/login", handleLogin)
+	http.HandleFunc("/logout", handleLogout)
+
 
 	// markdown 图片静态文件：/images/... -> ./markdowns/images/...
 	http.Handle(
@@ -114,6 +125,55 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// 轻量 GitHub 登录：只记用户名到 cookie
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "表单解析失败", http.StatusBadRequest)
+		return
+	}
+	username := strings.TrimSpace(r.FormValue("github_name"))
+	next := r.FormValue("next")
+	if next == "" {
+		next = "/"
+	}
+
+	if username == "" {
+		// 懒得搞复杂错误码，直接跳回去
+		http.Redirect(w, r, next, http.StatusSeeOther)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "github_user",
+		Value:    username,
+		Path:     "/",
+		Expires:  time.Now().Add(365 * 24 * time.Hour),
+		HttpOnly: true,
+	})
+
+	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+// 注销：清掉 cookie
+func handleLogout(w http.ResponseWriter, r *http.Request) {
+	next := r.URL.Query().Get("next")
+	if next == "" {
+		next = "/"
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:   "github_user",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+
 // 关于页：纯静态介绍
 func handleAbout(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/about" {
@@ -125,6 +185,7 @@ func handleAbout(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// 文章页 + 评论提交
 // 文章页 + 评论提交
 // 文章页 + 评论提交
 func handlePost(w http.ResponseWriter, r *http.Request) {
@@ -144,6 +205,8 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	currentUser := currentUserFromRequest(r)
+
 	// 提交评论：/post/{slug}/comment POST
 	if len(parts) == 2 && parts[1] == "comment" && r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
@@ -157,16 +220,21 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/post/"+slug+"?err=empty", http.StatusSeeOther)
 			return
 		}
-		if author == "" {
-			author = "匿名"
-		}
 
-		comment := Comment{
+		// 如果已登录 GitHub，则强制使用 GitHub 用户名，且标记 GitHubUser
+		c := Comment{
 			Author:    author,
 			Content:   content,
 			CreatedAt: time.Now(),
 		}
-		if err := appendComment(slug, comment); err != nil {
+		if currentUser != nil {
+			c.Author = currentUser.GitHubUser
+			c.GitHubUser = currentUser.GitHubUser
+		} else if c.Author == "" {
+			c.Author = "匿名"
+		}
+
+		if err := appendComment(slug, c); err != nil {
 			log.Printf("写入评论失败: %v", err)
 			http.Redirect(w, r, "/post/"+slug+"?err=server", http.StatusSeeOther)
 			return
@@ -188,20 +256,21 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Post     *Post
-		Comments []Comment
-		Error    string
+		Post        *Post
+		Comments    []Comment
+		Error       string
+		CurrentUser *CurrentUser
 	}{
-		Post:     post,
-		Comments: comments,
-		Error:    errMsg,
+		Post:        post,
+		Comments:    comments,
+		Error:       errMsg,
+		CurrentUser: currentUser,
 	}
 
 	if err := tpl.ExecuteTemplate(w, "post.html", data); err != nil {
 		log.Printf("渲染 post 失败: %v", err)
 	}
 }
-
 
 // ----------------- markdown 加载 -----------------
 
@@ -367,3 +436,19 @@ func appendComment(slug string, c Comment) error {
 	}
 	return os.WriteFile(commentsFilePath(slug), data, 0o644)
 }
+
+func currentUserFromRequest(r *http.Request) *CurrentUser {
+	c, err := r.Cookie("github_user")
+	if err != nil {
+		return nil
+	}
+	username := strings.TrimSpace(c.Value)
+	if username == "" {
+		return nil
+	}
+	return &CurrentUser{
+		GitHubUser: username,
+		AvatarURL:  "https://avatars.githubusercontent.com/" + username,
+	}
+}
+
