@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
@@ -20,7 +21,9 @@ import (
 
 const (
 	envMarkdownDir     = "BLOG_MARKDOWN_DIR"
-	defaultMarkdownDir = "./markdowns"
+	defaultMarkdownDir = "./data/markdowns"
+
+	commentDir = "./data/comments" // 评论文件存放目录
 )
 
 // Post 表示一篇文章
@@ -31,6 +34,13 @@ type Post struct {
 	Summary string
 	Raw     string
 	HTML    template.HTML
+}
+
+// Comment 表示一条评论
+type Comment struct {
+	Author    string    `json:"author"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 var (
@@ -48,13 +58,13 @@ var (
 		goldmark.WithRendererOptions(
 			ghtml.WithHardWraps(),
 			ghtml.WithXHTML(),
-			ghtml.WithUnsafe(), // markdown 里的原始 HTML 也输出
+			ghtml.WithUnsafe(),
 		),
 	)
 )
 
 func main() {
-	// 1. 加载 markdown
+	// 加载 markdown
 	markdownDir := os.Getenv(envMarkdownDir)
 	if markdownDir == "" {
 		markdownDir = defaultMarkdownDir
@@ -66,14 +76,15 @@ func main() {
 		log.Fatalf("加载 markdown 失败: %v", err)
 	}
 
-	// 2. 模板
+	// 解析模板
 	tpl = template.Must(template.ParseGlob("templates/*.html"))
 
-	// 3. 路由
+	// 路由
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/post/", handlePost)
+	http.HandleFunc("/about", handleAbout)
 
-	// 4. 静态图片路由：/images/... -> ./markdowns/images/...
+	// markdown 图片静态文件：/images/... -> ./markdowns/images/...
 	http.Handle(
 		"/images/",
 		http.StripPrefix(
@@ -87,7 +98,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
-// 首页
+// 首页：文章列表
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -103,23 +114,87 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 文章页：/post/{slug}
-func handlePost(w http.ResponseWriter, r *http.Request) {
-	slug := strings.TrimPrefix(r.URL.Path, "/post/")
-	if slug == "" {
+// 关于页：纯静态介绍
+func handleAbout(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/about" {
 		http.NotFound(w, r)
 		return
 	}
+	if err := tpl.ExecuteTemplate(w, "about.html", nil); err != nil {
+		log.Printf("渲染 about 失败: %v", err)
+	}
+}
+
+// 文章页 + 评论提交
+// 文章页 + 评论提交
+func handlePost(w http.ResponseWriter, r *http.Request) {
+	// 解析路径：/post/{slug} 或 /post/{slug}/comment
+	path := strings.TrimPrefix(r.URL.Path, "/post/")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.Split(path, "/")
+	slug := parts[0]
+
 	post, ok := postsBySlug[slug]
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 
+	// 提交评论：/post/{slug}/comment POST
+	if len(parts) == 2 && parts[1] == "comment" && r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "表单解析失败", http.StatusBadRequest)
+			return
+		}
+		author := strings.TrimSpace(r.FormValue("author"))
+		content := strings.TrimSpace(r.FormValue("content"))
+
+		if content == "" {
+			http.Redirect(w, r, "/post/"+slug+"?err=empty", http.StatusSeeOther)
+			return
+		}
+		if author == "" {
+			author = "匿名"
+		}
+
+		comment := Comment{
+			Author:    author,
+			Content:   content,
+			CreatedAt: time.Now(),
+		}
+		if err := appendComment(slug, comment); err != nil {
+			log.Printf("写入评论失败: %v", err)
+			http.Redirect(w, r, "/post/"+slug+"?err=server", http.StatusSeeOther)
+			return
+		}
+
+		http.Redirect(w, r, "/post/"+slug, http.StatusSeeOther)
+		return
+	}
+
+	// 正常 GET 文章页
+	comments, _ := loadComments(slug)
+	errKey := r.URL.Query().Get("err")
+	var errMsg string
+	switch errKey {
+	case "empty":
+		errMsg = "评论内容不能为空。"
+	case "server":
+		errMsg = "服务器写入失败，请稍后再试。"
+	}
+
 	data := struct {
-		Post *Post
+		Post     *Post
+		Comments []Comment
+		Error    string
 	}{
-		Post: post,
+		Post:     post,
+		Comments: comments,
+		Error:    errMsg,
 	}
 
 	if err := tpl.ExecuteTemplate(w, "post.html", data); err != nil {
@@ -127,7 +202,8 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ----------------- 加载 markdown 的辅助函数 -----------------
+
+// ----------------- markdown 加载 -----------------
 
 func loadPosts(root string) ([]*Post, map[string]*Post, error) {
 	var posts []*Post
@@ -184,7 +260,6 @@ func loadPosts(root string) ([]*Post, map[string]*Post, error) {
 		return nil, nil, err
 	}
 
-	// 时间倒序
 	sort.Slice(posts, func(i, j int) bool {
 		return posts[i].Date.After(posts[j].Date)
 	})
@@ -192,7 +267,6 @@ func loadPosts(root string) ([]*Post, map[string]*Post, error) {
 	return posts, postsBySlug, nil
 }
 
-// 标题：取第一行 "# xxx"；没有就用文件名
 var titleRegexp = regexp.MustCompile(`(?m)^#\s+(.+)$`)
 
 func extractTitle(content, filename string) string {
@@ -204,7 +278,6 @@ func extractTitle(content, filename string) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// slug：相对路径去掉扩展名，斜杠都换成 -
 func makeSlug(path, root string) string {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
@@ -217,7 +290,6 @@ func makeSlug(path, root string) string {
 	return slug
 }
 
-// 摘要：取前几行正文
 func makeSummary(content string) string {
 	lines := strings.Split(content, "\n")
 	var b strings.Builder
@@ -246,7 +318,6 @@ func makeSummary(content string) string {
 	return s
 }
 
-// markdown 渲染成 HTML，并修正图片路径
 func renderMarkdown(content string) (template.HTML, error) {
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(content), &buf); err != nil {
@@ -254,10 +325,45 @@ func renderMarkdown(content string) (template.HTML, error) {
 	}
 	htmlStr := buf.String()
 
-	// 把 markdown 里类似 src="images/xxx.png" / "./images/xxx.png"
-	// 统一改成 HTTP 路径 /images/xxx.png
+	// 修正图片路径：images/... -> /images/...
 	htmlStr = strings.ReplaceAll(htmlStr, `src="images/`, `src="/images/`)
 	htmlStr = strings.ReplaceAll(htmlStr, `src="./images/`, `src="/images/`)
 
 	return template.HTML(htmlStr), nil
+}
+
+// ----------------- 评论数据持久化 -----------------
+
+func commentsFilePath(slug string) string {
+	return filepath.Join(commentDir, slug+".json")
+}
+
+func loadComments(slug string) ([]Comment, error) {
+	path := commentsFilePath(slug)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return []Comment{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var cs []Comment
+	if err := json.Unmarshal(data, &cs); err != nil {
+		return nil, err
+	}
+	return cs, nil
+}
+
+func appendComment(slug string, c Comment) error {
+	cs, _ := loadComments(slug)
+	cs = append(cs, c)
+
+	if err := os.MkdirAll(commentDir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(commentsFilePath(slug), data, 0o644)
 }
