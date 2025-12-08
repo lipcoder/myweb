@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -8,7 +10,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"text/template"
 	"time"
 )
 
@@ -20,11 +21,13 @@ const (
 
 // Post 表示一篇文章
 type Post struct {
-	Slug    string
-	Title   string
-	Date    time.Time
-	Summary string
-	Raw     string // 原始 markdown 文本
+	Slug        string
+	Title       string
+	Date        time.Time
+	Summary     string
+	Raw         string          // 原始 markdown 文本
+	HTML        template.HTML   // 渲染后的 HTML
+	ReadingTime int             // 估算阅读时长（分钟）
 }
 
 var (
@@ -132,12 +135,17 @@ func loadPosts(root string) ([]*Post, map[string]*Post, error) {
 			modTime = info.ModTime()
 		}
 
+		html := markdownToHTML(raw)
+		readingTime := calcReadingTime(raw)
+
 		post := &Post{
-			Slug:    slug,
-			Title:   title,
-			Date:    modTime,
-			Summary: summary,
-			Raw:     raw,
+			Slug:        slug,
+			Title:       title,
+			Date:        modTime,
+			Summary:     summary,
+			Raw:         raw,
+			HTML:        html,
+			ReadingTime: readingTime,
 		}
 
 		posts = append(posts, post)
@@ -209,4 +217,76 @@ func makeSummary(content string) string {
 		s = string(runes[:80]) + "..."
 	}
 	return s
+}
+
+// 简易 markdown -> HTML（支持标题、段落、代码块）
+func markdownToHTML(md string) template.HTML {
+	lines := strings.Split(md, "\n")
+	var b strings.Builder
+	inCode := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// 代码块 ``` 包裹
+		if strings.HasPrefix(trimmed, "```") {
+			if !inCode {
+				b.WriteString("<pre><code>")
+				inCode = true
+			} else {
+				b.WriteString("</code></pre>\n")
+				inCode = false
+			}
+			continue
+		}
+
+		if inCode {
+			// 代码内容需要转义
+			template.HTMLEscape(&b, []byte(line+"\n"))
+			continue
+		}
+
+		if trimmed == "" {
+			continue
+		}
+
+		// 标题 # / ## / ... / ######
+		if strings.HasPrefix(trimmed, "#") {
+			level := 0
+			for level < len(trimmed) && trimmed[level] == '#' {
+				level++
+			}
+			if level > 6 {
+				level = 6
+			}
+			text := strings.TrimSpace(trimmed[level:])
+			if text == "" {
+				continue
+			}
+			tag := fmt.Sprintf("h%d", level)
+			b.WriteString("<" + tag + ">")
+			template.HTMLEscape(&b, []byte(text))
+			b.WriteString("</" + tag + ">\n")
+			continue
+		}
+
+		// 普通段落
+		b.WriteString("<p>")
+		template.HTMLEscape(&b, []byte(trimmed))
+		b.WriteString("</p>\n")
+	}
+
+	return template.HTML(b.String())
+}
+
+// 根据字数估算阅读时长（分钟）
+func calcReadingTime(content string) int {
+	// 简单按空白分词
+	words := strings.Fields(content)
+	const wpm = 200 // words per minute
+	minutes := (len(words) + wpm - 1) / wpm
+	if minutes <= 0 {
+		minutes = 1
+	}
+	return minutes
 }

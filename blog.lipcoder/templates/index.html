@@ -3,18 +3,67 @@
   <head>
     <meta charset="utf-8" />
     <title>我的博客</title>
+    <style>
+      body {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.6;
+        background: #f7f7f7;
+      }
+      a {
+        color: #0070f3;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      h1 {
+        margin-bottom: 0.5rem;
+      }
+      .post-list {
+        list-style: none;
+        padding: 0;
+      }
+      .post-item {
+        background: #fff;
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+      .post-item-title {
+        font-size: 1.1rem;
+        margin: 0 0 0.25rem 0;
+      }
+      .meta {
+        font-size: 0.85rem;
+        color: #666;
+        margin-bottom: 0.5rem;
+      }
+      .summary {
+        font-size: 0.95rem;
+        color: #333;
+      }
+    </style>
   </head>
   <body>
     <h1>我的博客</h1>
+    <p class="meta">共 {{ len .Posts }} 篇文章</p>
     <hr />
 
     {{ if .Posts }}
-    <ul>
+    <ul class="post-list">
       {{ range .Posts }}
-      <li>
-        <a href="/post/{{ .Slug }}">{{ .Title }}</a>
-        ({{ .Date.Format "2006-01-02" }})<br />
-        <small>{{ .Summary }}</small>
+      <li class="post-item">
+        <h2 class="post-item-title">
+          <a href="/post/{{ .Slug }}">{{ .Title }}</a>
+        </h2>
+        <div class="meta">
+          {{ .Date.Format "2006-01-02" }} · 预计阅读 {{ .ReadingTime }} 分钟
+        </div>
+        <p class="summary">{{ .Summary }}</p>
       </li>
       {{ end }}
     </ul>
