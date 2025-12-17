@@ -2,31 +2,41 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>关于我</title>
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
+
   <body class="min-h-screen bg-[#f7f3ea] text-slate-900">
-    <div class="max-w-5xl mx-auto px-4 py-8">
-      <header class="mb-4 flex items-baseline justify-between">
+    <div class="max-w-5xl mx-auto px-4 py-5 sm:py-8">
+      <header class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
         <a
           href="/"
-          class="text-sm text-slate-500 hover:text-blue-700 hover:underline inline-flex items-center"
+          class="inline-flex items-center px-2 py-1 -mx-2 -my-1 rounded-md text-sm text-slate-500 hover:text-blue-700 hover:underline
+                 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
         >
           <span class="mr-1">&larr;</span> 返回首页
         </a>
-        <nav class="space-x-4 text-sm text-slate-600">
-          <a href="/" class="hover:underline">首页</a>
-          <a href="/about" class="hover:underline font-semibold">关于</a>
+
+        <nav class="flex flex-wrap gap-2 text-sm text-slate-600">
+          <a
+            href="/"
+            class="px-2 py-1 -mx-2 -my-1 rounded-md hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >首页</a>
+          <a
+            href="/about"
+            class="px-2 py-1 -mx-2 -my-1 rounded-md hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >关于</a>
         </nav>
       </header>
 
-      <article
-        class="rounded-2xl bg-white border border-neutral-200 px-6 py-6 shadow-sm"
-      >
-        <h1 class="text-2xl font-semibold mb-4">关于我</h1>
+      <article class="rounded-2xl bg-white border border-neutral-200 px-4 py-5 sm:px-6 sm:py-6 shadow-sm">
+        <h1 class="text-xl sm:text-2xl font-semibold mb-4">关于我</h1>
+
         <p class="text-sm leading-relaxed text-slate-800">
           想来想去，总觉得自己的网站还是应该有一个About me，于是添加了这部分内容，诸君请看。
         </p>
+
         <p class="mt-3 text-sm leading-relaxed text-slate-800">
           同样，由于时间的变化，博客中的不同文章可能出现互相冲突，或者意见相左的文章，这仅仅代表我在思考与写作的过程中想法与思维的变化发生了变化。
         </p>
