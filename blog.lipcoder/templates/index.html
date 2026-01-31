@@ -1,0 +1,36 @@
+{{define "index"}}
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  {{template "head" .}}
+  <title>首页</title>
+</head>
+
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <div class="mx-auto max-w-3xl px-4 py-8">
+    {{template "header" .}}
+
+    <div class="mt-6 space-y-4">
+      {{if not .Posts}}
+      <div class="rounded-3xl border border-white/10 bg-white/5 p-6">
+        <div class="text-zinc-300">暂无文章（当前缓存也为空）。请确认：仓库/分支/目录下是否真的有 .md 文件。</div>
+      </div>
+      {{end}}
+
+      {{range .Posts}}
+      <a href="/p/{{.Slug}}"
+        class="block rounded-3xl border border-white/10 bg-white/5 p-6 hover:bg-white/7 transition">
+        <div class="text-lg font-extrabold tracking-tight">{{.Title}}</div>
+        <div class="mt-2 text-sm text-zinc-300 leading-relaxed">{{.Excerpt}}</div>
+        <div class="mt-4 text-xs text-zinc-500">{{.SourcePath}}</div>
+      </a>
+      {{end}}
+    </div>
+
+    {{template "footer" .}}
+  </div>
+</body>
+
+</html>
+{{end}}

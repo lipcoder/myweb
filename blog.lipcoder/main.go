@@ -10,7 +10,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -27,9 +29,9 @@ type Config struct {
 	Owner       string
 	Repo        string
 	Branch      string
-	ContentDir  string
-	GithubToken string
-	Refresh     time.Duration
+	ContentDir  string // repo directory containing markdown
+	GithubToken string  // optional
+	DataDir     string  // local cache directory (fixed to ./data)
 }
 
 type Post struct {
@@ -50,36 +52,53 @@ type Cache struct {
 
 func main() {
 	var cfg Config
-	flag.StringVar(&cfg.Addr, "addr", "127.0.0.1:8080", "listen address")
+	flag.StringVar(&cfg.Addr, "addr", ":8080", "listen address")
 	flag.StringVar(&cfg.Owner, "owner", "", "github owner/org (required)")
 	flag.StringVar(&cfg.Repo, "repo", "", "github repo (required)")
 	flag.StringVar(&cfg.Branch, "branch", "main", "branch")
-	flag.StringVar(&cfg.ContentDir, "dir", "content", "directory in repo containing markdown")
+	flag.StringVar(&cfg.ContentDir, "dir", "data", "directory in repo containing markdown")
 	flag.StringVar(&cfg.GithubToken, "token", "", "github token (optional, increases rate limits)")
-	flag.DurationVar(&cfg.Refresh, "refresh", 2*time.Minute, "refresh interval")
 	flag.Parse()
 
 	if cfg.Owner == "" || cfg.Repo == "" {
 		log.Fatal("missing -owner or -repo")
 	}
 
+	// local cache under ./data (fixed)
+	cfg.DataDir = "data"
+	_ = os.MkdirAll(cfg.DataDir, 0o755)
+
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
-		goldmark.WithRendererOptions(gmhtml.WithUnsafe()), // 若不需要 md 中的内联 HTML，可删掉
+		goldmark.WithRendererOptions(gmhtml.WithUnsafe()),
 	)
 
-	tpls := template.Must(template.New("all").Parse(pageTemplates))
+	// templates are separated under ./templates; avoid name collisions by using only:
+	// - partials: head/header/footer
+	// - pages: index/post
+	tpls := template.Must(template.New("").ParseFS(os.DirFS("."), "templates/*.html"))
 
 	cache := &Cache{bySlug: map[string]Post{}}
 
-	// initial sync
+	// load from disk first (if any)
+	if ps, e := loadPostsFromDisk(cfg, md); e == nil && len(ps) > 0 {
+		cache.mu.Lock()
+		cache.posts = ps
+		for _, p := range ps {
+			cache.bySlug[p.Slug] = p
+		}
+		cache.mu.Unlock()
+		log.Printf("loaded %d posts from ./data", len(ps))
+	}
+
+	// initial GitHub sync
 	if err := syncOnce(context.Background(), cfg, cache, md); err != nil {
 		log.Printf("initial sync error: %v", err)
 	}
 
-	// periodic refresh
+	// refresh every hour
 	go func() {
-		t := time.NewTicker(cfg.Refresh)
+		t := time.NewTicker(1 * time.Hour)
 		defer t.Stop()
 		for range t.C {
 			if err := syncOnce(context.Background(), cfg, cache, md); err != nil {
@@ -102,7 +121,7 @@ func main() {
 		cache.mu.RUnlock()
 
 		data := map[string]any{
-			"RepoLabel": fmt.Sprintf("%s/%s:%s/%s", cfg.Owner, cfg.Repo, cfg.Branch, strings.Trim(cfg.ContentDir, "/")),
+			"RepoLabel": repoLabel(cfg),
 			"Posts":     posts,
 			"LastSync":  lastSync,
 			"LastErr":   lastErr,
@@ -129,7 +148,7 @@ func main() {
 		}
 
 		data := map[string]any{
-			"RepoLabel": fmt.Sprintf("%s/%s:%s/%s", cfg.Owner, cfg.Repo, cfg.Branch, strings.Trim(cfg.ContentDir, "/")),
+			"RepoLabel": repoLabel(cfg),
 			"Post":      p,
 			"LastSync":  lastSync,
 			"LastErr":   lastErr,
@@ -139,6 +158,10 @@ func main() {
 
 	log.Printf("listening on %s", cfg.Addr)
 	log.Fatal(http.ListenAndServe(cfg.Addr, securityHeaders(mux)))
+}
+
+func repoLabel(cfg Config) string {
+	return fmt.Sprintf("%s/%s:%s/%s", cfg.Owner, cfg.Repo, cfg.Branch, strings.Trim(cfg.ContentDir, "/"))
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -164,7 +187,6 @@ type ghTreeResp struct {
 		Path string `json:"path"`
 		Type string `json:"type"` // blob/tree
 	} `json:"tree"`
-	Truncated bool `json:"truncated"`
 }
 
 type ghContentResp struct {
@@ -173,28 +195,34 @@ type ghContentResp struct {
 }
 
 func syncOnce(ctx context.Context, cfg Config, cache *Cache, md goldmark.Markdown) error {
-	posts, err := fetchPosts(ctx, cfg, md)
+	posts, rawBySlug, err := fetchPosts(ctx, cfg, md)
 
 	cache.mu.Lock()
-	defer cache.mu.Unlock()
 	cache.lastSync = time.Now()
 	cache.lastErr = err
-	if err == nil {
+	// Only replace cache when GitHub fetch is successful AND found posts.
+	if err == nil && len(posts) > 0 {
 		cache.posts = posts
 		cache.bySlug = map[string]Post{}
 		for _, p := range posts {
 			cache.bySlug[p.Slug] = p
 		}
 	}
+	cache.mu.Unlock()
+
+	if err == nil && len(posts) > 0 {
+		if e := savePostsToDisk(cfg, posts, rawBySlug); e != nil {
+			log.Printf("save data error: %v", e)
+		}
+	}
 	return err
 }
 
-func fetchPosts(ctx context.Context, cfg Config, md goldmark.Markdown) ([]Post, error) {
-	// 1) Repo tree (recursive)
+func fetchPosts(ctx context.Context, cfg Config, md goldmark.Markdown) ([]Post, map[string]string, error) {
 	treeURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/git/trees/%s?recursive=1", cfg.Owner, cfg.Repo, cfg.Branch)
 	var tree ghTreeResp
 	if err := ghGetJSON(ctx, cfg, treeURL, &tree); err != nil {
-		return nil, fmt.Errorf("fetch tree: %w", err)
+		return nil, nil, fmt.Errorf("fetch tree: %w", err)
 	}
 
 	prefix := strings.Trim(cfg.ContentDir, "/") + "/"
@@ -210,15 +238,23 @@ func fetchPosts(ctx context.Context, cfg Config, md goldmark.Markdown) ([]Post, 
 			mdFiles = append(mdFiles, it.Path)
 		}
 	}
+	sort.Strings(mdFiles)
 
-	// 2) Fetch each markdown file via contents API (simple + stable)
+	if len(mdFiles) == 0 {
+		return nil, nil, fmt.Errorf("no .md files found under repo dir %q (try a different -dir)", cfg.ContentDir)
+	}
+	log.Printf("found %d markdown files under %q", len(mdFiles), cfg.ContentDir)
+
 	var posts []Post
+	rawBySlug := map[string]string{}
+
 	for _, p := range mdFiles {
 		body, err := ghFetchFile(ctx, cfg, p)
 		if err != nil {
 			log.Printf("fetch %s failed: %v", p, err)
 			continue
 		}
+
 		title := extractTitle(body)
 		if title == "" {
 			title = strings.TrimSuffix(path.Base(p), path.Ext(p))
@@ -234,6 +270,8 @@ func fetchPosts(ctx context.Context, cfg Config, md goldmark.Markdown) ([]Post, 
 		rel := strings.TrimSuffix(strings.TrimPrefix(p, prefix), ".md")
 		slug := slugify(rel)
 
+		rawBySlug[slug] = body
+
 		posts = append(posts, Post{
 			Slug:       slug,
 			Title:      title,
@@ -243,9 +281,12 @@ func fetchPosts(ctx context.Context, cfg Config, md goldmark.Markdown) ([]Post, 
 		})
 	}
 
-	// 3) Sort (you can replace by commit time if you want)
+	if len(posts) == 0 {
+		return nil, nil, fmt.Errorf("markdown files exist but none could be rendered (check logs)")
+	}
+
 	sort.Slice(posts, func(i, j int) bool { return posts[i].SourcePath > posts[j].SourcePath })
-	return posts, nil
+	return posts, rawBySlug, nil
 }
 
 func ghFetchFile(ctx context.Context, cfg Config, filePath string) (string, error) {
@@ -264,7 +305,6 @@ func ghFetchFile(ctx context.Context, cfg Config, filePath string) (string, erro
 		}
 		return string(dec), nil
 	}
-
 	return c.Content, nil
 }
 
@@ -290,7 +330,12 @@ func ghGetJSON(ctx context.Context, cfg Config, url string, out any) error {
 
 // ---------------- helpers ----------------
 
-var reH1 = regexp.MustCompile(`(?m)^\s*#\s+(.+?)\s*$`)
+var (
+	reH1          = regexp.MustCompile(`(?m)^\s*#\s+(.+?)\s*$`)
+	reStripFences = regexp.MustCompile("(?s)```.*?```")
+	reStripHead   = regexp.MustCompile(`(?m)^#+\s*`)
+	reSlugBad     = regexp.MustCompile(`[^a-zA-Z0-9\-/]+`)
+)
 
 func extractTitle(md string) string {
 	m := reH1.FindStringSubmatch(md)
@@ -301,10 +346,8 @@ func extractTitle(md string) string {
 }
 
 func makeExcerpt(md string, n int) string {
-	s := md
-	// strip fenced code blocks (rough)
-	s = regexp.MustCompile("(?s)```.*?```").ReplaceAllString(s, "")
-	s = regexp.MustCompile("(?m)^#+\\s*").ReplaceAllString(s, "")
+	s := reStripFences.ReplaceAllString(md, "")
+	s = reStripHead.ReplaceAllString(s, "")
 	s = strings.TrimSpace(s)
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.Join(strings.Fields(s), " ")
@@ -319,7 +362,7 @@ func slugify(s string) string {
 	s = strings.Trim(strings.ReplaceAll(s, "\\", "/"), "/")
 	s = strings.ReplaceAll(s, " ", "-")
 	s = strings.ReplaceAll(s, "_", "-")
-	s = regexp.MustCompile(`[^a-zA-Z0-9\-/]+`).ReplaceAllString(s, "")
+	s = reSlugBad.ReplaceAllString(s, "")
 	s = strings.Trim(s, "-")
 	s = strings.ReplaceAll(s, "/", "-")
 	if s == "" {
@@ -328,106 +371,88 @@ func slugify(s string) string {
 	return strings.ToLower(s)
 }
 
-// ---------------- templates (HTML+CSS inline, Tailwind CDN) ----------------
+// ---------------- disk persistence (./data) ----------------
 
+type diskIndex struct {
+	GeneratedAt time.Time `json:"generated_at"`
+	RepoLabel   string    `json:"repo_label"`
+	Posts       []struct {
+		Slug       string `json:"slug"`
+		Title      string `json:"title"`
+		Excerpt    string `json:"excerpt"`
+		SourcePath string `json:"source_path"`
+	} `json:"posts"`
+}
 
-const pageTemplates = `
-{{define "head"}}
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-  /* Markdown 轻量排版 */
-  .md h1{font-size:1.6rem;font-weight:800;margin:1.2rem 0 .8rem}
-  .md h2{font-size:1.3rem;font-weight:800;margin:1.1rem 0 .7rem}
-  .md h3{font-size:1.1rem;font-weight:800;margin:1rem 0 .6rem}
-  .md p{margin:.75rem 0;line-height:1.75}
-  .md a{text-decoration:underline}
-  .md ul{list-style:disc;padding-left:1.5rem;margin:.75rem 0}
-  .md ol{list-style:decimal;padding-left:1.5rem;margin:.75rem 0}
-  .md blockquote{border-left:3px solid rgba(255,255,255,.18);padding-left:1rem;opacity:.95;margin:1rem 0}
-  .md pre{overflow:auto;border-radius:1rem;padding:1rem;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);margin:1rem 0}
-  .md code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:.95em}
-  .md table{width:100%;border-collapse:collapse;margin:1rem 0}
-  .md th,.md td{border:1px solid rgba(255,255,255,.12);padding:.5rem .6rem}
-  .md th{background:rgba(255,255,255,.06);text-align:left}
-  .md img{max-width:100%;border-radius:1rem;border:1px solid rgba(255,255,255,.10);margin:1rem 0}
-  .md hr{border:0;border-top:1px solid rgba(255,255,255,.10);margin:1.25rem 0}
-</style>
-{{end}}
+func savePostsToDisk(cfg Config, posts []Post, rawBySlug map[string]string) error {
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		return err
+	}
 
-{{define "header"}}
-<div class="flex items-start justify-between gap-4">
-  <a href="/" class="text-xl font-extrabold tracking-tight hover:opacity-90">Home</a>
-  <div class="text-right text-xs text-zinc-400 leading-relaxed">
-    <div class="truncate max-w-[14rem]">{{.RepoLabel}}</div>
-    <div>sync: {{if .LastSync.IsZero}}-{{else}}{{.LastSync.Format "2006-01-02 15:04:05"}}{{end}}</div>
-    {{if .LastErr}}<div class="text-amber-300">sync err: {{.LastErr}}</div>{{end}}
-  </div>
-</div>
-{{end}}
+	for _, p := range posts {
+		raw, ok := rawBySlug[p.Slug]
+		if !ok {
+			continue
+		}
+		fp := filepath.Join(cfg.DataDir, p.Slug+".md")
+		if err := os.WriteFile(fp, []byte(raw), 0o644); err != nil {
+			return err
+		}
+	}
 
-{{define "footer"}}
-<div class="mt-10 text-xs text-zinc-500">No login. Markdown from GitHub.</div>
-{{end}}
+	var idx diskIndex
+	idx.GeneratedAt = time.Now()
+	idx.RepoLabel = repoLabel(cfg)
+	for _, p := range posts {
+		idx.Posts = append(idx.Posts, struct {
+			Slug       string `json:"slug"`
+			Title      string `json:"title"`
+			Excerpt    string `json:"excerpt"`
+			SourcePath string `json:"source_path"`
+		}{
+			Slug:       p.Slug,
+			Title:      p.Title,
+			Excerpt:    p.Excerpt,
+			SourcePath: p.SourcePath,
+		})
+	}
 
-{{define "index"}}
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  {{template "head" .}}
-  <title>首页</title>
-</head>
-<body class="min-h-screen bg-zinc-950 text-zinc-100">
-  <div class="mx-auto max-w-3xl px-4 py-8">
-    {{template "header" .}}
-    <div class="mt-6 space-y-4">
-      {{if not .Posts}}
-        <div class="rounded-3xl border border-white/10 bg-white/5 p-6">
-          <div class="text-zinc-300">暂无文章：请确认仓库、分支、目录，以及目录下有 .md 文件。</div>
-        </div>
-      {{end}}
-      {{range .Posts}}
-        <a href="/p/{{.Slug}}" class="block rounded-3xl border border-white/10 bg-white/5 p-6 hover:bg-white/7 transition">
-          <div class="text-lg font-extrabold tracking-tight">{{.Title}}</div>
-          <div class="mt-2 text-sm text-zinc-300 leading-relaxed">{{.Excerpt}}</div>
-          <div class="mt-4 text-xs text-zinc-500">{{.SourcePath}}</div>
-        </a>
-      {{end}}
-    </div>
-    {{template "footer" .}}
-  </div>
-</body>
-</html>
-{{end}}
+	b, _ := json.MarshalIndent(idx, "", "  ")
+	tmp := filepath.Join(cfg.DataDir, "index.json.tmp")
+	final := filepath.Join(cfg.DataDir, "index.json")
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, final)
+}
 
-{{define "post"}}
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  {{template "head" .}}
-  <title>{{.Post.Title}}</title>
-</head>
-<body class="min-h-screen bg-zinc-950 text-zinc-100">
-  <div class="mx-auto max-w-3xl px-4 py-8">
-    {{template "header" .}}
-    <div class="mt-6">
-      <a href="/" class="inline-flex items-center gap-2 text-sm text-zinc-300 hover:text-white">
-        <span class="opacity-70">←</span> 返回
-      </a>
+func loadPostsFromDisk(cfg Config, md goldmark.Markdown) ([]Post, error) {
+	b, err := os.ReadFile(filepath.Join(cfg.DataDir, "index.json"))
+	if err != nil {
+		return nil, err
+	}
+	var idx diskIndex
+	if err := json.Unmarshal(b, &idx); err != nil {
+		return nil, err
+	}
 
-      <div class="mt-4 rounded-3xl border border-white/10 bg-white/5 p-6">
-        <div class="text-2xl font-extrabold tracking-tight">{{.Post.Title}}</div>
-        <div class="mt-1 text-xs text-zinc-500">{{.Post.SourcePath}}</div>
-        <div class="mt-6 md text-zinc-100">
-          {{.Post.HTML}}
-        </div>
-      </div>
-    </div>
-    {{template "footer" .}}
-  </div>
-</body>
-</html>
-{{end}}
-`
-
+	var posts []Post
+	for _, it := range idx.Posts {
+		raw, err := os.ReadFile(filepath.Join(cfg.DataDir, it.Slug+".md"))
+		if err != nil {
+			continue
+		}
+		var sb strings.Builder
+		if err := md.Convert(raw, &sb); err != nil {
+			continue
+		}
+		posts = append(posts, Post{
+			Slug:       it.Slug,
+			Title:      it.Title,
+			Excerpt:    it.Excerpt,
+			HTML:       template.HTML(sb.String()),
+			SourcePath: it.SourcePath,
+		})
+	}
+	return posts, nil
+}

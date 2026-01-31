@@ -1,0 +1,37 @@
+{{define "head"}}
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .md h1{font-size:1.6rem;font-weight:800;margin:1.2rem 0 .8rem}
+  .md h2{font-size:1.3rem;font-weight:800;margin:1.1rem 0 .7rem}
+  .md h3{font-size:1.1rem;font-weight:800;margin:1rem 0 .6rem}
+  .md p{margin:.75rem 0;line-height:1.75}
+  .md a{text-decoration:underline}
+  .md ul{list-style:disc;padding-left:1.5rem;margin:.75rem 0}
+  .md ol{list-style:decimal;padding-left:1.5rem;margin:.75rem 0}
+  .md blockquote{border-left:3px solid rgba(255,255,255,.18);padding-left:1rem;opacity:.95;margin:1rem 0}
+  .md pre{overflow:auto;border-radius:1rem;padding:1rem;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);margin:1rem 0}
+  .md code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:.95em}
+  .md table{width:100%;border-collapse:collapse;margin:1rem 0}
+  .md th,.md td{border:1px solid rgba(255,255,255,.12);padding:.5rem .6rem}
+  .md th{background:rgba(255,255,255,.06);text-align:left}
+  .md img{max-width:100%;border-radius:1rem;border:1px solid rgba(255,255,255,.10);margin:1rem 0}
+  .md hr{border:0;border-top:1px solid rgba(255,255,255,.10);margin:1.25rem 0}
+</style>
+{{end}}
+
+{{define "header"}}
+<div class="flex items-start justify-between gap-4">
+  <a href="/" class="text-xl font-extrabold tracking-tight hover:opacity-90">Home</a>
+  <div class="text-right text-xs text-zinc-400 leading-relaxed">
+    <div class="truncate max-w-[14rem]">{{.RepoLabel}}</div>
+    <div>sync: {{if .LastSync.IsZero}}-{{else}}{{.LastSync.Format "2006-01-02 15:04:05"}}{{end}}</div>
+    {{if .LastErr}}<div class="text-amber-300">sync warn: {{.LastErr}}</div>{{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "footer"}}
+<div class="mt-10 text-xs text-zinc-500">No login. Markdown from GitHub. Cached to ./data</div>
+{{end}}

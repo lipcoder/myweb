@@ -1,4 +1,4 @@
-module main
+module md-gh-cards
 
 go 1.22
 
